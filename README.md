@@ -30,24 +30,41 @@ AspectSentix surfaces that difference so sellers can act precisely.
 ## How it works
 
 ```text
-CSV (90 reviews)  ──┐
-                     ├──► LLM stage 1  ──► aspect extractor + sentiment scorer
-User question (opt) ──┘
-                                    └──► LLM stage 2  ──► aggregator + narrative report
+CSV (90 reviews)  ──► Read File ──► Type Convert ──► Prompt Template 1
+                                                          │
+                                          aspect extractor ─┘
+                                                          ▼
+                                          NineRouterLLM #1 (temperature=0.0)
+                                                          │ JSON array
+                                                          ▼
+                                          Prompt Template 2 ──► sentiment scorer
+                                                          │
+                                          NineRouterLLM #2 (temperature=0.0)
+                                                          │ JSON array
+                                                          ▼
+                                          Prompt Template 3 ──► aggregator
+                                                          │
+                                          NineRouterLLM #3 (temperature=0.7)
+                                                          │
+                                                          ▼
+                                                    Chat Output
+                                                    (narrative report)
 ```
 
-| Stage | Component (custom / built-in) | What it does |
+| Stage | Component | What it does |
 |---|---|---|
-| 1 Input | File + Chat Input | Reads CSV, accepts optional focus question |
-| 2 Split | 5 Brancher nodes | Routes reviews per `rating` (1-5 stars) to isolate token budget |
-| 3 Extract | `NineRouterLLM` (custom) | Per-rating: **ABSA** — extracts aspect + polarity + confidence + quotes |
-| 4 Aggregate | `NineRouterLLM` + Code | Merges 5 branches, builds distribution table + narrative |
-| 5 Report | structured output | `laporan_final.md` — table, strengths, weaknesses, action priorities |
+| 1 Input | Read File + Type Convert | Loads CSV, converts tabular data to text for the prompt |
+| 2 Extract | Prompt Template 1 + NineRouterLLM | Normalizes Indonesian slang, then extracts aspects into 9 fixed categories |
+| 3 Score | Prompt Template 2 + NineRouterLLM | Assigns sentiment + confidence + evidence quote per (review, aspect) pair |
+| 4 Aggregate | Prompt Template 3 + NineRouterLLM | Merges results into distribution table + narrative recommendations |
+| 5 Output | Chat Output | `laporan_final.md` — table, strengths, weaknesses, action priorities |
 
-![Prompt template]](./screenshots/3-prompt-template-1.png)
+An optional **Chat Input** node lets users ask a focus question (e.g., "analyze shipping only") — the report adapts to that lens.
+
+![Prompt template 1](./screenshots/3-prompt-template-1.png)
 *Stage-1 prompt template — aspect extraction + confidence scoring.*
 
-![Prompt template]](./screenshots/4-prompt-template-2.png)
+![Prompt template 2](./screenshots/4-prompt-template-2.png)
 *Stage-2 prompt template — aggregation + recommendation synthesis.*
 
 ---
@@ -58,13 +75,13 @@ From a real 90-review dataset of laptop / handphone / tablet sellers:
 
 ### Sentiment distribution per aspect
 
-| Aspect | Positive | Negative | Total |
-|---|---|---|---|
-| **Product Quality** | 22 | 26 | 48 |
-| **Shipping** | 17 | 17 | 34 |
-| **Authenticity** | 9 | **15** | 24 |
-| Packaging | 8 | 3 | 11 |
-| Price | 4 | 2 | 7 |
+| Aspect | Positive | Negative | Neutral | Total |
+|---|---|---|---|---|
+| **Product Quality** | 22 | 26 | 0 | 48 |
+| **Shipping** | 17 | 17 | 0 | 34 |
+| **Authenticity** | 9 | **15** | 0 | 24 |
+| Packaging | 8 | 3 | 0 | 11 |
+| Price | 4 | 2 | 1 | 7 |
 
 ### Top 3 improvement priorities (automated)
 
@@ -81,27 +98,60 @@ Full report → [`output/laporan_final.md`](./output/laporan_final.md)
 
 ## Key improvisations (over standard Langflow templates)
 
-1. **9Router** — custom LLM component wired to a private endpoint, supporting
-   dynamic model selection + structured JSON schema enforcement
-2. **Rating isolation** — reviews split into 5 branches by star-rating, keeping
-   each LLM call ~2.7 K tokens (not 13 K) and avoiding aggregation drift
-3. **Confidence-gated** — reviews with `confidence ≤ 0.6` routed to manual QA
-   list, preventing bad signals
-4. **Aspect-level scoring** — pure aspect-based, not document-level sentiment
-5. **Priorities with effort estimate** — each recommendation tagged *Low / Med /
-   High* impact + time cost (1-3 days), so sellers can pick weekly sprints
+1. **9Router** — custom LLM component wired to a private endpoint, with a
+   free-model combo so no paid provider is required
+2. **3-stage ABSA pipeline** — the stock template does one global sentiment
+   pass; this splits extraction, scoring, and aggregation into separate LLM
+   calls with a JSON contract between stages
+3. **Type Convert bridge** — the CSV loads as a `Table`; a converter node turns
+   it into text the prompt can consume
+4. **Slang normalization layer** — Indonesian colloquial forms (`mantappp`,
+   `WKWK`, `lmyan`) are normalized inside Prompt Template 1 before extraction
+5. **Confidence-gated** — reviews with `confidence ≤ 0.6` are flagged for human
+   verification instead of being force-labeled
+6. **Focus lens** — an optional Chat Input lets the seller ask a targeted
+   question ("shipping only") and the report adapts
+7. **Prioritized remediation** — recommendations come with an impact ranking
+   and a 1–3 day effort estimate, so a seller can pick a weekly sprint
 
 ---
 
-## Tech stack
+## Results & Limitations
+
+### Coverage (from `output/laporan_final.md`, 90-review sample)
+
+| Metric | Value |
+|---|---|
+| Reviews with ≥1 aspect detected | 82 / 90 |
+| **Coverage** | **91.1%** |
+| Reviews without any aspect | 8 (short / ambiguous reviews) |
+| Aspect pairs (all aspects across all reviews) | 138 |
+| Negative aspect share | 52.9% (73 / 138) |
+
+### Confidence (from same report)
+
+| Threshold | Count | % of all aspect pairs |
+|---|---|---|
+| confidence ≤ 0.6 | 12 rows | flagged for human review |
+| confidence 0.7+ | remaining | auto-labeled |
+
+`product_quality` accounts for 7 of 12 low-confidence rows — many short reviews ("barang ok", "barang udah nyampe, bagus") are genuinely ambiguous about which aspect they refer to.
+
+### Known limitations
+
+1. **No labeled ground truth.** Confidence is a self-reported proxy, not a calibrated probability. Without a gold-standard dataset, precision/recall/F1 cannot be computed.
+2. **Non-deterministic aggregation.** Running the same flow twice can yield slightly different counts. `temperature=0` on extraction/scoring reduces variance; the final aggregation uses `temperature=0.7` for natural language, which introduces minor drift.
+3. **Closed 9-aspect taxonomy.** Domain-specific aspects (e.g., "fragrance" for skincare) are silently dropped.
+4. **Reproducibility gap.** `build_dataset.py` depends on an external upstream repo (`_dataset_repo/`) that is not bundled. The generated CSVs are committed; the builder cannot be re-run from this repo alone without cloning the source.
+5. **Report language is Bahasa Indonesia.** The output is designed for Indonesian sellers, not international readers.
 
 | Layer | Tool |
 |---|---|
 | Flow runtime | **Langflow 1.10.0** |
-| LLM backbone | DeepSeek-V3-0324 (via `NineRouterLLM` custom component) |
-| Prompt engineering | 2-stage ABSA: extract → aggregate |
-| Data prep | `build_dataset.py` (rating-stratified, 90 reviews) |
-| Visualization | 5 screenshots auto-exported from Langflow UI |
+| LLM backend | Multi-model via `NineRouterLLM` (free models through 9Router) |
+| Prompt engineering | 3-stage ABSA: extract → score → aggregate |
+| Data prep | `build_dataset.py` (rating-stratified, seed=42) |
+| Visualization | 5 screenshots exported manually from the Langflow UI |
 | Format | CSV input → JSON schema → markdown report |
 
 ---
@@ -111,11 +161,11 @@ Full report → [`output/laporan_final.md`](./output/laporan_final.md)
 ```
 aspectsentix/
 ├── PRD.md                      # Design doc (IBM submission form)
-├── build_dataset.py            # Stratified split by rating → 5 branches
+├── build_dataset.py            # Reproducible stratified sampler (seed=42)
 ├── dataset/
-│   ├── gadget_reviews.csv      # Full 394-review raw dataset
-│   ├── gadget_reviews_90.csv   # 90-review stratified sample used in report
-│   └── by_rating/              # Per-rating CSV splits
+│   ├── gadget_reviews.csv      # Full 300-review stratified sample
+│   ├── gadget_reviews_90.csv   # 90-review subset used in the sample report
+│   └── by_rating/              # External rating-stratified splits (60/rating)
 ├── output/
 │   ├── AspectSentix.json       # Langflow flow export (all credentials stripped)
 │   ├── laporan_final.md        # Final narrative report
@@ -133,7 +183,7 @@ aspectsentix/
 ```bash
 # 0. Prerequisites
 #    - Langflow 1.10.0 running at http://localhost:7860
-#    - A DeepSeek API key (or any OpenRouter-compatible endpoint)
+#    - An API key for the 9Router custom endpoint (or equivalent)
 
 # 1. Environment
 cp .env.example .env
@@ -152,19 +202,30 @@ cp .env.example .env
 #    Click "Play" on ChatInput → outputs report to ChatOutput
 ```
 
-> **Note:** The `NineRouterLLM` custom component is **not** in the public Langflow
-> registry.  The flow ships with the component shell; you must supply the
-> runtime implementation or substitute the built-in `OpenAIModel` node.
+The `NineRouterLLM` custom component is **not** in the public Langflow
+registry.  The flow ships with the component shell; you must supply the
+runtime implementation or substitute the built-in `OpenAIModel` node.
+
+> **Note:** Models used are free-tier through the 9Router combo — no single
+> provider is required.
 
 ---
 
 ## Dataset
 
-- **Source:** 394 gadget reviews, manually curated from marketplace comments
-- **Sample:** 90 reviews, stratified by 1-5 star ratings
-- **Fields:** `review` (text), `rating` (1-5), `category` (handphone / laptop)
-- **Language:** Bahasa Indonesia
+- **Source:** `revanmd/indonesian-dataset-SA-ML` — Lazada & Shopee reviews, >3M reviews across 200+ categories
+- **Built via:** `build_dataset.py` — stratified sampling, `seed=42`, 95 rich + 5 short edge-case reviews per category
+- **Sample used in flow:** `dataset/gadget_reviews_90.csv` — **90 reviews**, stratified across 5 ratings × 3 categories
+- **Full sample:** `dataset/gadget_reviews.csv` — **300 reviews** (the full stratified sample, 100 per category)
+- **Per-rating splits:** `dataset/by_rating/` — 60 rows per rating (1–5), produced externally
+- **Fields:** `review` (text), `rating` (1–5), `category` (laptop / handphone / tablet)
+- **Language:** Bahasa Indonesia, with colloquialisms, typos, and deliberate edge cases
 - **No PII:** only review text + rating + category; no names / emails / phone numbers
+
+> **Note:** `build_dataset.py` requires a sparse-clone of the upstream dataset repo
+> (`_dataset_repo/`). The generated CSVs are committed, so you can run the flow
+> without re-running the builder. To regenerate: clone `revanmd/indonesian-dataset-SA-ML`
+> into `_dataset_repo/` and run `python build_dataset.py`.
 
 ---
 
