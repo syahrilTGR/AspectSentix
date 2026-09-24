@@ -29,27 +29,8 @@ AspectSentix surfaces that difference so sellers can act precisely.
 
 ## How it works
 
-```text
-CSV (90 reviews)  ──► Read File ──► Type Convert ──► Prompt Template 1
-                                                          │
-                                          aspect extractor ─┘
-                                                          ▼
-                                          NineRouterLLM #1 (temperature=0.0)
-                                                          │ JSON array
-                                                          ▼
-                                          Prompt Template 2 ──► sentiment scorer
-                                                          │
-                                          NineRouterLLM #2 (temperature=0.0)
-                                                          │ JSON array
-                                                          ▼
-                                          Prompt Template 3 ──► aggregator
-                                                          │
-                                          NineRouterLLM #3 (temperature=0.7)
-                                                          │
-                                                          ▼
-                                                    Chat Output
-                                                    (narrative report)
-```
+The flow is a **3-stage LLM pipeline** — extraction, scoring, and
+aggregation — each a separate call with a JSON contract between stages.
 
 | Stage | Component | What it does |
 |---|---|---|
@@ -61,11 +42,15 @@ CSV (90 reviews)  ──► Read File ──► Type Convert ──► Prompt Te
 
 An optional **Chat Input** node lets users ask a focus question (e.g., "analyze shipping only") — the report adapts to that lens.
 
-![Prompt template 1](./screenshots/3-prompt-template-1.png)
-*Stage-1 prompt template — aspect extraction + confidence scoring.*
+![Architecture diagram](./docs/architecture.dataflow.png)
+*Three-stage ABSA pipeline. Generated with [Archify](https://github.com/tt-a1i/archify) from
+`docs/architecture.dataflow.json` — validated via `--quality showcase`, 9/9 checks passed.*
 
-![Prompt template 2](./screenshots/4-prompt-template-2.png)
-*Stage-2 prompt template — aggregation + recommendation synthesis.*
+> The diagram shows the 5 nodes (`Read File`, `Type Convert`, `Prompt Template 1`,
+> `9Router LLM #1`, `Prompt Template 2`, `9Router LLM #2`, `Prompt Template 3`,
+> `9Router LLM #3`, `Chat Output`) and 9 directed edges between them. Labels
+> include `extract prompt`, `aspects JSON`, `score prompt`, `sentiment JSON`,
+> `aggregate prompt`, `report`. Flow runs left-to-right with automatic routing.
 
 ---
 

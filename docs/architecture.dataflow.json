@@ -1,0 +1,161 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "AspectSentix ABSA Pipeline",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1068,
+      680
+    ]
+  },
+  "stages": [
+    {
+      "label": "Input"
+    },
+    {
+      "label": "Normalize"
+    },
+    {
+      "label": "Extract"
+    },
+    {
+      "label": "Score"
+    },
+    {
+      "label": "Report"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "read_file",
+      "type": "frontend",
+      "label": "Read File",
+      "sublabel": "CSV reviews",
+      "stage": 0,
+      "row": 1
+    },
+    {
+      "id": "type_convert",
+      "type": "backend",
+      "label": "Type Convert",
+      "sublabel": "Table to text",
+      "stage": 1,
+      "row": 1
+    },
+    {
+      "id": "pt1",
+      "type": "backend",
+      "label": "Prompt Template 1",
+      "sublabel": "normalize + extract",
+      "stage": 2,
+      "row": 0
+    },
+    {
+      "id": "llm1",
+      "type": "cloud",
+      "label": "9Router LLM #1",
+      "sublabel": "temperature 0.0",
+      "stage": 2,
+      "row": 2
+    },
+    {
+      "id": "pt2",
+      "type": "backend",
+      "label": "Prompt Template 2",
+      "sublabel": "score sentiment",
+      "stage": 3,
+      "row": 0
+    },
+    {
+      "id": "llm2",
+      "type": "cloud",
+      "label": "9Router LLM #2",
+      "sublabel": "temperature 0.0",
+      "stage": 3,
+      "row": 2
+    },
+    {
+      "id": "pt3",
+      "type": "backend",
+      "label": "Prompt Template 3",
+      "sublabel": "aggregate report",
+      "stage": 4,
+      "row": 0
+    },
+    {
+      "id": "llm3",
+      "type": "cloud",
+      "label": "9Router LLM #3",
+      "sublabel": "temperature 0.7",
+      "stage": 4,
+      "row": 2
+    },
+    {
+      "id": "chat_output",
+      "type": "backend",
+      "label": "Chat Output",
+      "sublabel": "report to seller",
+      "stage": 4,
+      "row": 3
+    }
+  ],
+  "flows": [
+    {
+      "id": "csv-rows",
+      "from": "read_file",
+      "to": "type_convert",
+      "label": "CSV rows",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "review-text",
+      "from": "type_convert",
+      "to": "pt1",
+      "label": "review text",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "extract-prompt",
+      "from": "pt1",
+      "to": "llm1",
+      "label": "extract prompt",
+      "labelDy": 24
+    },
+    {
+      "id": "aspects-json",
+      "from": "llm1",
+      "to": "pt2",
+      "label": "aspects JSON"
+    },
+    {
+      "id": "score-prompt",
+      "from": "pt2",
+      "to": "llm2",
+      "label": "score prompt",
+      "labelDy": 24
+    },
+    {
+      "id": "sentiment-json",
+      "from": "llm2",
+      "to": "pt3",
+      "label": "sentiment JSON"
+    },
+    {
+      "id": "aggregate-prompt",
+      "from": "pt3",
+      "to": "llm3",
+      "label": "aggregate prompt",
+      "labelDy": 24
+    },
+    {
+      "id": "final-report",
+      "from": "llm3",
+      "to": "chat_output",
+      "label": "report",
+      "labelDy": 24
+    }
+  ]
+}
